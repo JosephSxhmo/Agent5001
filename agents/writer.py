@@ -43,9 +43,7 @@ def draft_issue(context: str, model: str = "gpt-4o") -> IssueDraft:
     
     system_prompt = (
         "You are an expert Writer agent. Your task is to draft a structured GitHub Issue based on the provided context. "
-        "You must ensure the output strictly adheres to the IssueDraft schema. "
-        "CRITICAL: The 'evidence' field must not be empty. Quote specific lines, files, or state 'Based on the diff...'. "
-        "The 'acceptance_criteria' field must contain highly specific, actionable steps, not vague goals."
+        "You must ensure the output strictly adheres to the IssueDraft schema."
     )
     
     prompt = f"Context:\n{context}\n\nPlease draft the Issue."
@@ -57,9 +55,7 @@ def draft_pr(context: str, model: str = "gpt-4o") -> PRDraft:
 
     system_prompt = (
         "You are an expert Writer agent. Your task is to draft a structured GitHub Pull Request based on the provided context. "
-        "You must ensure the output strictly adheres to the PRDraft schema. "
-        "CRITICAL: The 'test_plan' MUST explicitly list step-by-step instructions on how to verify this change. Do not just say 'test inputs'. "
-        "Provide concrete examples of what scripts to run or what UI elements to click."
+        "You must ensure the output strictly adheres to the PRDraft schema."
     )
     
     prompt = f"Context:\n{context}\n\nPlease draft the PR."

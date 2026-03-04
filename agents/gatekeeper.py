@@ -17,10 +17,9 @@ def reflect_on_draft(draft: Any, draft_type: str, model: str = "gpt-4o") -> Refl
     
     system_prompt = (
         "You are the Gatekeeper Critic agent. Your job is to review proposed GitHub Issues and Pull Requests. "
-        "You must ensure the draft is reasonable. Check for unsupported claims or completely missing context. "
-        "However, do NOT fail the draft strictly due to formatting, minor redundancies, or slightly brief test plans, "
-        "as long as it generally describes the code changes accurately. Default to passing (PASS) unless there is a severe "
-        "policy violation or complete hallucination."
+        "You must ensure the draft is high-quality. Fail the draft if you find unsupported claims, "
+        "missing evidence/context, vague test plans, or general policy violations (e.g., poor formatting). "
+        "Enforce strict standards."
     )
     
     draft_json = draft.model_dump_json(indent=2)

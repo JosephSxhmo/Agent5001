@@ -6,7 +6,7 @@ from agents.reviewer import review_code_changes, critique_existing_item
 from agents.planner import plan_from_review, plan_from_instruction, load_plan, save_plan, clear_plan
 from agents.writer import draft_issue, draft_pr, improve_draft
 from agents.gatekeeper import reflect_on_draft, save_pending_draft, load_pending_draft, gatekeeper_approve, PendingDraft, clear_pending_draft
-from tools.git import get_git_diff, get_current_branch
+from tools.git import get_git_diff
 from tools.github import get_issue, create_issue, create_pull_request
 
 def main():
@@ -44,12 +44,7 @@ def main():
     repo = "Agent5001"
     
     if args.command == "review":
-        try:
-            diff = get_git_diff(args.base, args.range)
-        except Exception as e:
-            print("[Error] Failed to get git diff. Are you in a git repository with the specified branch?")
-            sys.exit(1)
-            
+        diff = get_git_diff(args.base, args.range)
         if not diff:
             print("[Tool] No diff found.")
             sys.exit(0)
@@ -118,15 +113,10 @@ def main():
                 if pending.item_type == "issue":
                     create_issue(owner, repo, pending.title, pending.body)
                 else:
-                    head_branch = get_current_branch()
-                    if not head_branch or head_branch == "HEAD":
-                        print("[Error] Cannot create PR from a detached HEAD or empty branch. Please checkout a named branch.")
-                        sys.exit(1)
-                    
+                    head_branch = "HEAD" # Or could extract from working tree
                     base_branch = "main"
-                    # In a real workflow, you would push the branch first, but this tests the API call.
                     create_pull_request(owner, repo, pending.title, pending.body, head_branch, base_branch)
-                print("[Tool] GitHub API call completed.")
+                print("[Tool] GitHub API call successful.")
                 clear_pending_draft()
                 clear_plan()
         elif args.no:
