@@ -42,8 +42,10 @@ def draft_issue(context: str, model: str = "gpt-4o") -> IssueDraft:
     print("[Writer] Drafting Issue...")
     
     system_prompt = (
-        "You are an expert Writer agent. Your task is to draft a structured GitHub Issue based on the provided context. "
-        "You must ensure the output strictly adheres to the IssueDraft schema."
+        "You are an expert Writer agent. Your task is to draft a structured GitHub Issue based on the provided JSON context. "
+        "You must ensure the output strictly adheres to the IssueDraft schema. "
+        "CRITICAL: The 'evidence', 'problem_description', and 'title' fields MUST NOT be empty. You must extract this directly from the context text. "
+        "The 'acceptance_criteria' field must contain highly specific, actionable steps based on the 'issues_found' in the context."
     )
     
     prompt = f"Context:\n{context}\n\nPlease draft the Issue."
@@ -54,8 +56,11 @@ def draft_pr(context: str, model: str = "gpt-4o") -> PRDraft:
     print("[Writer] Drafting Pull Request...")
 
     system_prompt = (
-        "You are an expert Writer agent. Your task is to draft a structured GitHub Pull Request based on the provided context. "
-        "You must ensure the output strictly adheres to the PRDraft schema."
+        "You are an expert Writer agent. Your task is to draft a structured GitHub Pull Request based on the provided JSON context. "
+        "You must ensure the output strictly adheres to the PRDraft schema. "
+        "CRITICAL: The 'summary', 'behavior_change', and 'files_affected' fields MUST NOT be empty. Extract them directly from the context. "
+        "The 'test_plan' MUST explicitly list step-by-step instructions on how to verify this change. Do not just say 'test inputs'. "
+        "Provide concrete examples of what scripts to run or what CLI commands to test."
     )
     
     prompt = f"Context:\n{context}\n\nPlease draft the PR."
