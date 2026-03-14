@@ -33,9 +33,13 @@ def plan_from_review(review_result: any) -> PlanContext:
     print("[Planner] Deciding action based on review...")
     
     action = "none"
-    if "issue" in review_result.suggested_action.lower():
+    suggested = review_result.suggested_action.lower()
+    
+    if "no action" in suggested or "none" in suggested:
+        action = "none"
+    elif "issue" in suggested:
         action = "issue"
-    elif "pr" in review_result.suggested_action.lower() or "pull request" in review_result.suggested_action.lower():
+    elif "pr" in suggested or "pull request" in suggested:
         action = "pr"
         
     context_data = {

@@ -80,6 +80,25 @@ python agent.py improve issue --number 42
 python agent.py improve pr --number 17
 ```
 
+## Testing Locally (Generating a real diff)
+
+To test the agent's full Review -> Draft -> Protect -> Publish workflow using your own codebase, follow these steps:
+
+1. **Modify a file**: Open any file in your project (e.g., `agent.py`) and make a deliberate change (like adding a bug, a `# TODO` comment, or a new function). Do *not* commit it yet.
+2. **Run the review**: Let the agent analyze your uncommitted changes.
+   ```bash
+   python agent.py review
+   ```
+   *(Wait for the Reviewer to analyze the diff and the Planner to say "Saved plan context".)*
+3. **Draft the issue/PR**:
+   ```bash
+   python agent.py draft pr 
+   # or `python agent.py draft issue` depending on what the Planner suggested
+   ```
+4. **Approve or Reject**:
+    - `python agent.py approve --yes` (Creates the real PR on GitHub!)
+    - `python agent.py approve --no` (Safely deletes the draft) 
+
 ## Architecture
 
 This project implements:

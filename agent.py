@@ -1,7 +1,7 @@
 import argparse
 import sys
 import os
-
+#Testing The PR Bot
 from agents.reviewer import review_code_changes, critique_existing_item
 from agents.planner import plan_from_review, plan_from_instruction, load_plan, save_plan, clear_plan
 from agents.writer import draft_issue, draft_pr, improve_draft
@@ -79,6 +79,10 @@ def main():
         
         if not plan:
             sys.exit(1)
+            
+        if plan.action == "none" and not args.instruction:
+            print("[Warning] The previous review concluded that NO ACTION was required. Aborting draft.")
+            sys.exit(0)
             
         # Draft content
         draft_content = None
