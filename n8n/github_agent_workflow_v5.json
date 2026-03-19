@@ -1,0 +1,512 @@
+{
+    "name": "n8n True 4-Agent Pipeline Workflow V5",
+    "nodes": [
+        {
+            "parameters": {},
+            "id": "trigger-chat",
+            "name": "Chat Trigger",
+            "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+            "typeVersion": 1,
+            "position": [
+                0,
+                460
+            ]
+        },
+        {
+            "parameters": {
+                "model": "llama3",
+                "options": {}
+            },
+            "id": "model-ollama",
+            "name": "Ollama Model",
+            "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+            "typeVersion": 1,
+            "position": [
+                360,
+                680
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "const { execSync } = require('child_process');\nconst instruction = $input.first().json.chatInput || 'Review changes';\nlet diff = '';\ntry {\n  diff = execSync('git diff HEAD', { cwd: '/home/joseph/five001/Agent5001' }).toString();\n  if (!diff) diff = 'No code changes in working directory.';\n} catch (e) { diff = 'Error fetching diff: ' + e.message; }\n\nreturn { instruction: instruction, diff: diff, chatInput: `INSTRUCTION: ${instruction}\\n\\nDATA:\\n${diff}` };"
+            },
+            "id": "fetch-data",
+            "name": "Local Git & Data Fetch",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                200,
+                460
+            ]
+        },
+        {
+            "parameters": {
+                "promptType": "define",
+                "text": "={{ $json.chatInput }}",
+                "messages": {
+                    "messageValues": [
+                        {
+                            "message": "You are the PLANNER AGENT. Analyze the user instruction. Decide whether to create a Pull Request ('CREATE_PR'), create an Issue ('CREATE_ISSUE'), or take 'NO_ACTION'. You must output EXACTLY ONE of those three keywords and nothing else! Example: 'CREATE_PR'"
+                        }
+                    ]
+                }
+            },
+            "id": "planner-agent",
+            "name": "Planner Agent (Action Router)",
+            "type": "@n8n/n8n-nodes-langchain.chainLlm",
+            "typeVersion": 1.4,
+            "position": [
+                400,
+                460
+            ]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "string": [
+                        {
+                            "value1": "={{ $json.text }}",
+                            "operation": "contains",
+                            "value2": "NO_ACTION"
+                        }
+                    ]
+                }
+            },
+            "id": "planner-if",
+            "name": "IF NO_ACTION",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2,
+            "position": [
+                620,
+                460
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "return { chatInput: `Aborting cleanly! The Planner determined no GitHub action was required based on your instruction.` };"
+            },
+            "id": "planner-abort",
+            "name": "Abort Successfully",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                620,
+                240
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "const prev = $item(0).$node['Local Git & Data Fetch'].json;\nreturn { chatInput: `PLANNER ACTION: ${$input.first().json.text}\\nINSTRUCTION: ${prev.instruction}\\nDATA:\\n${prev.diff}` };"
+            },
+            "id": "format-reviewer",
+            "name": "Format For Reviewer",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                840,
+                460
+            ]
+        },
+        {
+            "parameters": {
+                "promptType": "define",
+                "text": "={{ $json.chatInput }}",
+                "messages": {
+                    "messageValues": [
+                        {
+                            "message": "You are the REVIEWER AGENT. Analyze the data and instructions. Categorize the change (feature, bugfix, refactor) and assess risk (low/medium/high). Identify potential issues. Output a structured critique summarizing your findings. Do not draft the final PR or Issue yet."
+                        }
+                    ]
+                }
+            },
+            "id": "reviewer-agent",
+            "name": "Reviewer Agent",
+            "type": "@n8n/n8n-nodes-langchain.chainLlm",
+            "typeVersion": 1.4,
+            "position": [
+                1060,
+                460
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "const planner_action = $item(0).$node['Planner Agent (Action Router)'].json.text;\nconst prev = $item(0).$node['Local Git & Data Fetch'].json.instruction;\nreturn { chatInput: `You are instructed to ${planner_action} matching user instructions '${prev}'.\\n\\nBased on this Reviewer Critique, draft the final markdown:\\n\\n${$input.first().json.text}` };"
+            },
+            "id": "format-writer",
+            "name": "Format For Writer",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                1280,
+                460
+            ]
+        },
+        {
+            "parameters": {
+                "promptType": "define",
+                "text": "={{ $json.chatInput }}",
+                "messages": {
+                    "messageValues": [
+                        {
+                            "message": "You are the WRITER AGENT. Draft the markdown content based purely on the critique provided. If CREATE_ISSUE, you MUST include 'Title', 'Problem description', 'Evidence', 'Acceptance criteria', and 'Risk level'. If CREATE_PR, you MUST include 'Title', 'Summary', 'Files affected', 'Behavior change', 'Test plan', and 'Risk level'. Output ONLY the markdown draft."
+                        }
+                    ]
+                }
+            },
+            "id": "writer-agent",
+            "name": "Writer Agent",
+            "type": "@n8n/n8n-nodes-langchain.chainLlm",
+            "typeVersion": 1.4,
+            "position": [
+                1500,
+                460
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "return { chatInput: `CRITIQUE THE FOLLOWING PR/ISSUE DRAFT:\\n\\n${$input.first().json.text}` };"
+            },
+            "id": "format-gatekeeper",
+            "name": "Format For Gatekeeper",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                1720,
+                460
+            ]
+        },
+        {
+            "parameters": {
+                "promptType": "define",
+                "text": "={{ $json.chatInput }}",
+                "messages": {
+                    "messageValues": [
+                        {
+                            "message": "You are the GATEKEEPER AGENT. Check the draft for unsupported claims, missing evidence, missing test plans, or policy violations. If it is poor quality, point out what is missing and output 'FAIL' at the very end. If it meets all strict criteria, you MUST output 'PASS' at the very end."
+                        }
+                    ]
+                }
+            },
+            "id": "gatekeeper-agent",
+            "name": "Gatekeeper (Critic) Agent",
+            "type": "@n8n/n8n-nodes-langchain.chainLlm",
+            "typeVersion": 1.4,
+            "position": [
+                1940,
+                460
+            ]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "string": [
+                        {
+                            "value1": "={{ $json.text }}",
+                            "operation": "contains",
+                            "value2": "FAIL"
+                        }
+                    ]
+                }
+            },
+            "id": "gatekeeper-if",
+            "name": "Did Gatekeeper FAIL?",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2,
+            "position": [
+                2160,
+                460
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "return { chatInput: `GATEKEEPER REJECTED THE PREVIOUS DRAFT. Reason:\\n${$input.first().json.text}\\n\\nPlease rewrite the formatted draft to fix these specific issues!` };"
+            },
+            "id": "gatekeeper-loop",
+            "name": "Loop Back to Writer",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                1800,
+                240
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "const draft = $item(0).$node['Writer Agent'].json.text;\nreturn { \n  text: `✅ GATEKEEPER PASSED THE DRAFT! \\n\\nPlease review your draft here, then click this link to APPROVE and Publish: http://localhost:5678/webhook/approve-draft \\n\\n${draft}`\n};"
+            },
+            "id": "wait-setup",
+            "name": "Trigger Webhook Wait Link",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                2380,
+                460
+            ]
+        },
+        {
+            "parameters": {
+                "resume": "webhook",
+                "path": "approve-draft",
+                "options": {}
+            },
+            "id": "wait-node",
+            "name": "Wait for Approval (Webhook)",
+            "type": "n8n-nodes-base.wait",
+            "typeVersion": 1,
+            "position": [
+                2600,
+                460
+            ],
+            "webhookId": "approve-draft-wbhk"
+        },
+        {
+            "parameters": {
+                "jsCode": "const draft = $item(0).$node['Writer Agent'].json.text;\nlet title = 'Agent5001 n8n Automated Creation';\nif (draft.includes('Title:')) {\n  title = draft.split('Title:')[1].split('\\n')[0].trim();\n}\n\nreturn {\n  title: title,\n  body: draft\n};"
+            },
+            "id": "format-github",
+            "name": "Prepare GitHub JSON",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                2820,
+                460
+            ]
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "https://api.github.com/repos/JosephSxhmo/Agent5001/pulls",
+                "authentication": "predefinedCredentialType",
+                "nodeCredentialType": "githubApi",
+                "sendBody": true,
+                "specifyBody": "json",
+                "jsonBody": "={\n  \"title\": \"{{ $json.title }}\",\n  \"body\": \"{{ $json.body }}\",\n  \"head\": \"my-new-feature\",\n  \"base\": \"main\"\n}",
+                "options": {}
+            },
+            "id": "github-http",
+            "name": "GitHub (Create on Repo)",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [
+                3040,
+                460
+            ]
+        }
+    ],
+    "connections": {
+        "Chat Trigger": {
+            "main": [
+                [
+                    {
+                        "node": "Local Git & Data Fetch",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Local Git & Data Fetch": {
+            "main": [
+                [
+                    {
+                        "node": "Planner Agent (Action Router)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Planner Agent (Action Router)": {
+            "main": [
+                [
+                    {
+                        "node": "IF NO_ACTION",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "IF NO_ACTION": {
+            "main": [
+                [
+                    {
+                        "node": "Abort Successfully",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Format For Reviewer",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Format For Reviewer": {
+            "main": [
+                [
+                    {
+                        "node": "Reviewer Agent",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Reviewer Agent": {
+            "main": [
+                [
+                    {
+                        "node": "Format For Writer",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Format For Writer": {
+            "main": [
+                [
+                    {
+                        "node": "Writer Agent",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Writer Agent": {
+            "main": [
+                [
+                    {
+                        "node": "Format For Gatekeeper",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Format For Gatekeeper": {
+            "main": [
+                [
+                    {
+                        "node": "Gatekeeper (Critic) Agent",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Gatekeeper (Critic) Agent": {
+            "main": [
+                [
+                    {
+                        "node": "Did Gatekeeper FAIL?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Did Gatekeeper FAIL?": {
+            "main": [
+                [
+                    {
+                        "node": "Loop Back to Writer",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Trigger Webhook Wait Link",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Loop Back to Writer": {
+            "main": [
+                [
+                    {
+                        "node": "Writer Agent",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Trigger Webhook Wait Link": {
+            "main": [
+                [
+                    {
+                        "node": "Wait for Approval (Webhook)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Wait for Approval (Webhook)": {
+            "main": [
+                [
+                    {
+                        "node": "Prepare GitHub JSON",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Prepare GitHub JSON": {
+            "main": [
+                [
+                    {
+                        "node": "GitHub (Create on Repo)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Ollama Model": {
+            "ai_languageModel": [
+                [
+                    {
+                        "node": "Planner Agent (Action Router)",
+                        "type": "ai_languageModel",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Reviewer Agent",
+                        "type": "ai_languageModel",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Writer Agent",
+                        "type": "ai_languageModel",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Gatekeeper (Critic) Agent",
+                        "type": "ai_languageModel",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "settings": {
+        "executionOrder": "v1"
+    }
+}

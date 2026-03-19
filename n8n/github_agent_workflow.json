@@ -1,0 +1,145 @@
+{
+  "name": "n8n Multi-Agent GitHub Workflow",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "chat-trigger",
+      "name": "Chat Trigger",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1,
+      "position": [
+        200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "model": "llama3",
+        "options": {}
+      },
+      "id": "ollama-model",
+      "name": "Ollama Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        400,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "agent": "conversationalAgent",
+        "promptType": "default",
+        "options": {
+          "systemMessage": "You are a multi-agent GitHub Repository Assistant. You have access to tools to review local Git changes, draft highly structured Pull Requests/Issues, and send them for Human Approval before publishing to GitHub.\n\nRULES:\n1. If asked to 'review', use the Git Tool to get the diff, then critique the codebase exactly like a Reviewer.\n2. If asked to 'draft a PR', you MUST draft a PR with a Summary, Files Affected, Behavior Change, Test Plan, and Risk Level. \n3. Before you actually create a PR using the GitHub node, you must stop and ask for human approval."
+        }
+      },
+      "id": "planner-agent",
+      "name": "GitHub Multi-Agent (Planner)",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [
+        400,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "name": "git_review_tool",
+        "description": "Executes git diff HEAD to get the latest local code changes.",
+        "jsCode": "return `Dummy diff for testing:\n+ # Just testing the beautiful n8n bot!\n`; "
+      },
+      "id": "git-diff-tool",
+      "name": "Git Review Tool",
+      "type": "@n8n/n8n-nodes-langchain.toolCustom",
+      "typeVersion": 1,
+      "position": [
+        550,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "name": "draft_github_pr",
+        "description": "Call this tool to format a draft Pull Request after reviewing the code. Requires the title and markdown body as inputs.",
+        "jsCode": "// Writer Agent Logic\nconst title = $input.item.json.title;\nconst body = $input.item.json.body;\n\n// Basic reflection / gatekeeper check\nif (!body.includes('Test Plan')) {\n  return 'GATEKEEPER FAIL: The draft MUST contain a Test Plan before proceeding. Redraft it.';\n}\n\nreturn `GATEKEEPER PASS: Draft is ready for human approval.\\nTitle: ${title}\\n\\n${body}`;"
+      },
+      "id": "writer-gatekeeper-tool",
+      "name": "Writer & Gatekeeper Tool",
+      "type": "@n8n/n8n-nodes-langchain.toolCustom",
+      "typeVersion": 1,
+      "position": [
+        700,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "pullRequest",
+        "operation": "create",
+        "repository": "JosephSxhmo/Agent5001",
+        "head": "my-new-feature",
+        "base": "main",
+        "title": "={{ $json.title }}",
+        "body": "={{ $json.body }}"
+      },
+      "id": "github-node",
+      "name": "GitHub (Create PR)",
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1,
+      "position": [
+        850,
+        500
+      ]
+    }
+  ],
+  "connections": {
+    "Chat Trigger": {
+      "main": [
+        [
+          {
+            "node": "GitHub Multi-Agent (Planner)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "GitHub Multi-Agent (Planner)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Git Review Tool": {
+      "main": [
+        [
+          {
+            "node": "GitHub Multi-Agent (Planner)",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Writer & Gatekeeper Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "GitHub Multi-Agent (Planner)",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

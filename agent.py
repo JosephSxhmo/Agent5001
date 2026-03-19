@@ -1,27 +1,77 @@
 import argparse
 import sys
-import os
-#Testing The PR Bot
-#Testing the n8n bot
-from agents.reviewer import review_code_changes, critique_existing_item
-from agents.planner import plan_from_review, plan_from_instruction, load_plan, save_plan, clear_plan
-from agents.writer import draft_issue, draft_pr, improve_draft
-from agents.gatekeeper import reflect_on_draft, save_pending_draft, load_pending_draft, gatekeeper_approve, PendingDraft, clear_pending_draft
-from tools.git import get_git_diff, get_current_branch
-from tools.github import get_issue, create_issue, create_pull_request
+import asyncio
+from mcp.client.stdio import stdio_client, StdioServerParameters
+from mcp import ClientSession
+#Testing the Reviewer, action must be taken for this comment
+from agents.message import AgentMessage
+from agents.planner import plan_route
+from agents.reviewer import review_route
+from agents.writer import writer_route
+from agents.gatekeeper import gatekeeper_route, gatekeeper_approve
+
+async def a2a_orchestrator(args):
+    """The central message bus routing messages between agents and hosting the MCP client."""
+    server_params = StdioServerParameters(
+        command="venv/bin/python3",
+        args=["tools/mcp_server.py"]
+    )
+    
+    print("[System] Connecting to MCP Server...")
+    async with stdio_client(server_params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            print("[System] MCP Client Initialized.")
+            
+            # Message Queue
+            messages = []
+            
+            # Initial User Prompt injection to the bus
+            if args.command == "review":
+                messages.append(AgentMessage(sender="user", receiver="reviewer", instruction="Review local code changes"))
+            elif args.command == "draft":
+                instruction = args.instruction or f"Draft a new {args.type} based on current state."
+                messages.append(AgentMessage(sender="user", receiver="planner", instruction=instruction, context={"type": args.type}))
+            elif args.command == "improve":
+                messages.append(AgentMessage(sender="user", receiver="reviewer", instruction="Critique existing item", context={"type": args.type, "number": args.number}))
+            elif args.command == "approve":
+                # Special bypass just for approval processing via Gatekeeper
+                await gatekeeper_approve(args.yes, session)
+                return
+
+            # Main A2A Event Loop
+            max_iterations = 15
+            iters = 0
+            while messages and iters < max_iterations:
+                msg = messages.pop(0)
+                print(f"\n[A2A Bus] Routing message from '{msg.sender}' to '{msg.receiver}'")
+                
+                if msg.receiver == "planner":
+                    next_msg = await plan_route(msg, session, args.model)
+                    if next_msg: messages.append(next_msg)
+                elif msg.receiver == "reviewer":
+                    next_msg = await review_route(msg, session, args.model)
+                    if next_msg: messages.append(next_msg)
+                elif msg.receiver == "writer":
+                    next_msg = await writer_route(msg, session, args.model)
+                    if next_msg: messages.append(next_msg)
+                elif msg.receiver == "gatekeeper":
+                    next_msg = await gatekeeper_route(msg, session, args.model)
+                    if next_msg: messages.append(next_msg)
+                
+                iters += 1
+                
+            if iters >= max_iterations:
+                print("[System] Hit maximum A2A loop iterations. Terminating.")
 
 def main():
-    parser = argparse.ArgumentParser(description="Personalized GitHub Repository Agent")
-    
-    # Global model argument
+    parser = argparse.ArgumentParser(description="A2A + MCP Personalized GitHub Agent")
     parser.add_argument("--model", type=str, default="gpt-4o", help="Model to use (e.g., gpt-4o, ollama/llama3)")
     
     subparsers = parser.add_subparsers(dest="command", help="Sub-commands")
     
     # review command
     review_parser = subparsers.add_parser("review", help="Review local code changes")
-    review_parser.add_argument("--base", help="Base branch/commit to compare against", default=None)
-    review_parser.add_argument("--range", help="Commit range (e.g. HEAD~3..HEAD)", default=None)
     
     # draft command
     draft_parser = subparsers.add_parser("draft", help="Draft an Issue or PR")
@@ -40,138 +90,12 @@ def main():
     
     args = parser.parse_args()
     
-    # Needs repository name and owner
-    owner = "JosephSxhmo"
-    repo = "Agent5001"
-    
-    if args.command == "review":
-        try:
-            diff = get_git_diff(args.base, args.range)
-        except Exception as e:
-            print("[Error] Failed to get git diff. Are you in a git repository with the specified branch?")
-            sys.exit(1)
-            
-        if not diff:
-            print("[Tool] No diff found.")
-            sys.exit(0)
-            
-        review_res = review_code_changes(diff, model=args.model)
-        print("\n--- Review Summary ---")
-        print(review_res.summary)
-        print(f"Suggested Action: {review_res.suggested_action}")
-        print("----------------------\n")
-        
-        plan = plan_from_review(review_res)
-        save_plan(plan)
-        print("[Planner] Saved plan context. Run `agent draft issue` or `agent draft pr` to proceed.")
-        
-    elif args.command == "draft":
-        # Get context
-        plan = None
-        if args.instruction:
-            plan = plan_from_instruction(args.instruction, args.type, model=args.model)
-        else:
-            plan = load_plan()
-            if not plan:
-                print("[Error] No active plan found and no --instruction provided.")
-                sys.exit(1)
-            if plan.action != args.type and plan.action != "none":
-                 print(f"[Warning] Resuming saved plan. Plan suggested action '{plan.action}' but crafting '{args.type}'.")
-        
-        if not plan:
-            sys.exit(1)
-            
-        if plan.action == "none" and not args.instruction:
-            print("[Warning] The previous review concluded that NO ACTION was required. Aborting draft.")
-            sys.exit(0)
-            
-        # Draft content
-        draft_content = None
-        if args.type == "issue":
-            draft_content = draft_issue(plan.context, model=args.model)
-        else:
-            draft_content = draft_pr(plan.context, model=args.model)
-            
-        # Gatekeeper reflection
-        verdict = reflect_on_draft(draft_content, args.type, model=args.model)
-        
-        print("\n--- DRAFT ---")
-        print(f"Title: {draft_content.title}")
-        print("Body:")
-        formatted_body = draft_content.format_body()
-        print(formatted_body)
-        print("-------------\n")
-        
-        if verdict.pass_validation:
-            print("[Gatekeeper] Reflection verdict: PASS")
-            # Save for approval
-            pending = PendingDraft(item_type=args.type, title=draft_content.title, body=formatted_body)
-            save_pending_draft(pending)
-            print("Action required: Run `agent approve --yes` or `agent approve --no`")
-        else:
-            print("[Gatekeeper] Reflection verdict: FAIL")
-            print("Revision required before saving draft.")
-            
-    elif args.command == "approve":
-        pending = load_pending_draft()
-        if not pending:
-            print("[Error] No pending drafts to approve.")
-            sys.exit(1)
-            
-        if args.yes:
-            if gatekeeper_approve(True):
-                if pending.item_type == "issue":
-                    create_issue(owner, repo, pending.title, pending.body)
-                else:
-                    head_branch = get_current_branch()
-                    if not head_branch or head_branch == "HEAD":
-                        print("[Error] Cannot create PR from a detached HEAD or empty branch. Please checkout a named branch.")
-                        sys.exit(1)
-                    
-                    base_branch = "main"
-                    # In a real workflow, you would push the branch first, but this tests the API call.
-                    create_pull_request(owner, repo, pending.title, pending.body, head_branch, base_branch)
-                print("[Tool] GitHub API call completed.")
-                clear_pending_draft()
-                clear_plan()
-        elif args.no:
-            gatekeeper_approve(False)
-        else:
-            print("Please specify --yes or --no")
-            
-    elif args.command == "improve":
-        github_item = get_issue(owner, repo, args.number)
-        if not github_item:
-            sys.exit(1)
-            
-        original_title = github_item.get("title", "")
-        original_body = github_item.get("body", "")
-        
-        critique_res = critique_existing_item(original_title, original_body, args.type, model=args.model)
-        
-        print("\n--- Critique ---")
-        for mi in critique_res.missing_info:
-            print(f"- Missing: {mi}")
-        print("----------------\n")
-        
-        improved_draft = improve_draft(original_title, original_body, critique_res.critique_summary, args.type, model=args.model)
-        
-        verdict = reflect_on_draft(improved_draft, args.type, model=args.model)
-        
-        print("\n--- IMPROVED DRAFT ---")
-        print(f"Title: {improved_draft.title}")
-        formatted = improved_draft.format_body()
-        print(formatted)
-        print("----------------------\n")
-        
-        if verdict.pass_validation:
-            print("[Gatekeeper] Reflection verdict: PASS")
-            pending = PendingDraft(item_type=args.type, title=improved_draft.title, body=formatted)
-            save_pending_draft(pending)
-            print("Action required: Run `agent approve --yes` or `agent approve --no`")
-            
-    else:
+    if not args.command:
         parser.print_help()
+        sys.exit(1)
+        
+    # Execute the async core loop
+    asyncio.run(a2a_orchestrator(args))
 
 if __name__ == "__main__":
     main()
